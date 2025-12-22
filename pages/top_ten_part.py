@@ -54,6 +54,44 @@ def style_trend(val):
         return "color: #c62828; font-weight: 600;"   # merah
     return ""
 
+# ===============================
+# 🔑 TREND CALCULATION
+# ===============================
+def compute_trend_from_years(years, revenues):
+    """
+    years     : list[int]
+    revenues  : list[float]
+    return    : float (slope / avg)
+    """
+    if len(years) < 2:
+        return np.nan
+
+    x = np.array(years, dtype=float)
+    y = np.array(revenues, dtype=float)
+
+    if y.mean() == 0:
+        return np.nan
+
+    x_mean = x.mean()
+    y_mean = y.mean()
+
+    slope = np.sum((x - x_mean) * (y - y_mean)) / np.sum((x - x_mean) ** 2)
+    return slope / y_mean
+
+
+# ===============================
+# 🔑 TREND YEAR SCOPE (BARU)
+# ===============================
+def get_trend_years(selected_year):
+    if selected_year == "ALL":
+        return [2023, 2024, 2025]
+    elif selected_year == "2023":
+        return [2023]
+    elif selected_year == "2024":
+        return [2023, 2024]
+    elif selected_year == "2025":
+        return [2023, 2024, 2025]
+
 
 @st.cache_data(show_spinner="Loading Top Ten Part Number...")
 def load_topten_part():
@@ -62,12 +100,18 @@ def load_topten_part():
         skiprows=5
     )
 
-    cols_to_drop = [1] + list(range(43, 48))
-    df_top = df_top_raw.drop(
-        df_top_raw.columns[cols_to_drop],
-        axis=1,
-        errors="ignore"
-    )
+    # ===============================
+    # DROP KOLOM SETELAH TREND (ANCHOR-BASED, AMAN)
+    # ===============================
+    cols = [str(c).strip() for c in df_top_raw.columns]
+
+    if "Trend" in cols:
+        trend_idx = cols.index("Trend")
+        cols_to_drop = cols[trend_idx + 1 :]
+    else:
+        cols_to_drop = []
+
+    df_top = df_top_raw.drop(columns=cols_to_drop, errors="ignore")
 
     df_top = df_top.loc[:, ~df_top.columns.astype(str).str.startswith("Unnamed")]
     df_top.columns = [str(c).strip() for c in df_top.columns]
@@ -176,8 +220,7 @@ def load_topten_part():
     # ===============================
     MONTH_PREFIXES = [
         "January", "February", "March", "April", "May", "June",
-        "July", "August", "September", "October", "November", "December",
-        "Grand Total"
+        "July", "August", "September", "October", "November", "December"
     ]
 
     for c in df_top.columns:
@@ -222,11 +265,18 @@ def format_whole_number(x):
 def render():
     st.title("🏆 Top Ten Part Number")
 
-    df = load_topten_part()
+    # 🔒 1. DATA PALING MENTAH (TIDAK BOLEH TERSENTUH FILTER)
+    df_all = load_topten_part()
 
-    if df.empty:
+    if df_all.empty:
         st.warning("Data kosong")
         return
+
+    # 🔹 2. DATA KERJA (INI YANG AKAN DI-FILTER)
+    df = df_all.copy()
+
+    # 🔹 3. DATA KHUSUS TREND (PAKAI RAW, JANGAN FILTER)
+    df_raw = df_all
      
     # ================= YEAR FILTER (REAL FIX) =================
     YEAR_MAP = {
@@ -298,19 +348,73 @@ def render():
     # ================= TABLE MODE =================
     if mode == "📋 Table":
 
-        # =============================
-        # 1. Tentukan suffix tahun
-        # =============================
-        suffix = "" if selected_year == "ALL" else YEAR_MAP[selected_year]
+        df = df.copy()
+
+        if selected_year == "ALL":
+            # ===============================
+            # AGGREGATE BULAN LINTAS TAHUN
+            # ===============================
+            month_cols = []
+
+            for m in BASE_MONTHS:
+                year_cols = [
+                    f"{m}{suffix}"
+                    for suffix in YEAR_MAP.values()
+                    if f"{m}{suffix}" in df.columns
+                ]
+
+                if year_cols:
+                    df[m] = df[year_cols].sum(axis=1, skipna=True)
+                    month_cols.append(m)
+
+        else:
+            # ===============================
+            # SINGLE YEAR MODE
+            # ===============================
+            suffix = YEAR_MAP[selected_year]
+            month_cols = []
+
+            for m in BASE_MONTHS:
+                col = f"{m}{suffix}"
+                if col in df.columns:
+                    df[m] = df[col]
+                    month_cols.append(m)
 
         # =============================
-        # 2. Tentukan kolom bulan SESUAI tahun
+        # 2.5 HITUNG TOTAL (DERIVED, AMAN)
         # =============================
-        month_cols = []
-        for m in BASE_MONTHS:
-            col = f"{m}{suffix}"
-            if col in df.columns:
-                month_cols.append(col)
+        df = df.copy()
+
+        if month_cols:
+            df["Total"] = df[month_cols].sum(axis=1, skipna=True)
+
+            if selected_year != "ALL":
+
+                trend_values = []
+                trend_years = get_trend_years(selected_year)
+
+                for idx in df.index:
+                    row = df_raw.loc[idx]
+
+                    years = []
+                    revenues = []
+
+                    for year in trend_years:
+                        suffix = YEAR_MAP[str(year)]
+                        year_months = [
+                            f"{m}{suffix}"
+                            for m in BASE_MONTHS
+                            if f"{m}{suffix}" in df_raw.columns
+                        ]
+
+                        year_total = row[year_months].sum(skipna=True)
+                        years.append(year)
+                        revenues.append(year_total or 0)
+
+                    trend = 0 if len(years) < 2 else compute_trend_from_years(years, revenues)
+                    trend_values.append(trend)
+
+                df["Trend"] = trend_values
 
         # =============================
         # 3. Kolom FINAL yang ditampilkan
@@ -319,7 +423,10 @@ def render():
 
         display_cols = base_cols + month_cols
 
-        # ⬇️ Trend PALING KANAN
+        # ⬅️ TAMBAHKAN TOTAL (DERIVED)
+        display_cols = display_cols + ["Total"]
+
+        # ⬅️ Trend PALING KANAN
         if "Trend" in df.columns:
             display_cols = display_cols + ["Trend"]
 
@@ -328,7 +435,7 @@ def render():
         # =============================
         df_show = (
             df[display_cols]
-            .sort_values(["Customer", "Part Number"])
+            .sort_values("Total", ascending=False)
             .groupby("Customer", group_keys=False)
             .head(top_n)
         )
@@ -338,13 +445,6 @@ def render():
         # =============================
         if "Trend" in df_show.columns:
             df_show["Trend"] = df_show["Trend"].apply(format_trend)
-
-        # =============================
-        # 5. Rename bulan → Januari–Desember
-        # =============================
-        df_show = df_show.rename(columns={
-            f"{m}{suffix}": m for m in BASE_MONTHS
-        })
 
         # =============================
         # 6. FORCE whole number
@@ -407,24 +507,46 @@ def render():
         month_rows = []
 
         for year, suffix in YEAR_MAP.items():
-            if selected_year != "ALL" and selected_year != year:
-                continue
+            # =============================
+            # DERIVED TREND (FINAL FIX)
+            # =============================
+            if selected_year != "ALL":
 
-            for m_full, m_short in BASE_MONTHS:
-                col = f"{m_full}{suffix}"
+                trend_values = []
+                trend_years = get_trend_years(selected_year)
 
-                if col in df_part.columns:
-                    val = df_part.iloc[0][col]
-                    value = 0 if pd.isna(val) else val
-                else:
-                    value = 0   # ⬅️ PAKSA ADA MESKI KOLOM TIDAK ADA
+                for idx in df.index:
+                    row = df_raw.loc[idx]   # ⬅️ DI SINI TEMPATNYA
 
-                month_rows.append({
-                    "Year": year,
-                    "Month": m_short,
-                    "MonthLabel": f"{m_short}-{year[-2:]}",
-                    "Value": value
-                })
+                    years = []
+                    revenues = []
+
+                    for year in trend_years:
+                        suffix = YEAR_MAP[str(year)]
+
+                        year_months = [
+                            f"{m}{suffix}"
+                            for m in BASE_MONTHS
+                            if f"{m}{suffix}" in df_raw.columns
+                        ]
+
+                        if not year_months:
+                            continue
+
+                        year_total = row[year_months].sum(skipna=True)
+
+                        years.append(year)
+                        revenues.append(0 if pd.isna(year_total) else float(year_total))
+
+                    # aturan bisnis kamu
+                    if len(years) < 2:
+                        trend = 0
+                    else:
+                        trend = compute_trend_from_years(years, revenues)
+
+                    trend_values.append(trend)
+
+                df["Trend"] = trend_values
 
         chart_df = pd.DataFrame(month_rows)
 
