@@ -1,16 +1,19 @@
 import streamlit as st
 import pandas as pd
-from config import EXCEL_PATH, load_excel
+from config import load_excel
 
 
 def render():
     st.title("📑 Sheet Explorer")
 
+    # =========================
+    # LOAD ALL SHEETS (DICT)
+    # =========================
     try:
-        xls = pd.ExcelFile(EXCEL_PATH, engine="openpyxl")
-        sheet_names = xls.sheet_names
+        sheets = load_excel(sheet_name=None)
+        sheet_names = list(sheets.keys())
     except Exception as e:
-        st.error(f"Gagal membaca file Excel: {e}")
+        st.error(f"Gagal membaca daftar sheet Excel: {e}")
         return
 
     selected_sheet = st.selectbox("Pilih Sheet Excel:", sheet_names)
@@ -18,11 +21,7 @@ def render():
     if not selected_sheet:
         return
 
-    try:
-        df = load_excel(sheet_name=selected_sheet)
-    except Exception as e:
-        st.error(f"Gagal membaca sheet {selected_sheet}: {e}")
-        return
+    df = sheets[selected_sheet]
 
     st.caption(
         f"Sheet: **{selected_sheet}** | "
@@ -31,7 +30,6 @@ def render():
     )
 
     MAX_ROWS = 3000
-
     st.info(f"Menampilkan {min(len(df), MAX_ROWS)} dari {len(df)} baris")
 
     df = df.copy()
@@ -46,4 +44,3 @@ def render():
         use_container_width=True,
         height=600
     )
-
