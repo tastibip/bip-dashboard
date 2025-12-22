@@ -21,10 +21,13 @@ LOCAL_DEV_PATH = Path(
 # GOOGLE DRIVE CONFIG (CLOUD)
 # ===============================
 FILE_ID = "1DDmALmveVKWYuu7pVhfafhcmC8rmkzII"
-DOWNLOAD_URL = "https://drive.google.com/uc?export=download"
-TMP_DIR = Path(tempfile.gettempdir())
-CLOUD_PATH = TMP_DIR / "bip_data.xlsx"
 
+DOWNLOAD_URL = (
+    "https://drive.usercontent.google.com/download"
+)
+
+TMP_DIR = Path(tempfile.gettempdir())
+CLOUD_PATH = TMP_DIR / "New BIP Dash 2.4.xlsx"
 
 # ===============================
 # DOWNLOAD FOR CLOUD ONLY
@@ -37,28 +40,34 @@ def download_excel_cloud():
         return CLOUD_PATH
 
     with st.spinner("📥 Downloading Excel from Google Drive..."):
-        session = requests.Session()
-        response = session.get(DOWNLOAD_URL, params={"id": FILE_ID}, stream=True)
+        r = requests.get(
+            DOWNLOAD_URL,
+            params={
+                "id": FILE_ID,
+                "export": "download",
+                "confirm": "t"
+            },
+            stream=True,
+            timeout=120
+        )
 
-        for k, v in response.cookies.items():
-            if k.startswith("download_warning"):
-                response = session.get(
-                    DOWNLOAD_URL,
-                    params={"id": FILE_ID, "confirm": v},
-                    stream=True,
-                )
-                break
+        if r.status_code != 200:
+            raise RuntimeError(f"Download failed ({r.status_code})")
 
-        if response.status_code != 200:
-            raise RuntimeError("Failed to download file from Google Drive")
+        # 🔥 VALIDASI MIME TYPE
+        content_type = r.headers.get("Content-Type", "")
+        if "text/html" in content_type.lower():
+            raise RuntimeError(
+                "Google Drive returned HTML, not Excel. "
+                "Check sharing permission (must be Anyone with link → Viewer)"
+            )
 
         with open(CLOUD_PATH, "wb") as f:
-            for chunk in response.iter_content(65536):
+            for chunk in r.iter_content(1024 * 1024):
                 if chunk:
                     f.write(chunk)
 
     return CLOUD_PATH
-
 
 # ===============================
 # GLOBAL EXCEL LOADER
