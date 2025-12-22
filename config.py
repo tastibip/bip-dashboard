@@ -2,17 +2,16 @@ import streamlit as st
 import pandas as pd
 import requests
 from pathlib import Path
-import os
 import platform
 import tempfile
 
 # ===============================
-# DETECT ENVIRONMENT
+# DETECT ENVIRONMENT (FIXED)
 # ===============================
-IS_CLOUD = os.getenv("STREAMLIT_CLOUD", "") != ""
+IS_CLOUD = platform.system() != "Windows"
 
 # ===============================
-# LOCAL WINDOWS PATH (UNTUK DEV)
+# LOCAL WINDOWS PATH (DEV ONLY)
 # ===============================
 LOCAL_DEV_PATH = Path(
     r"D:\Business Improvement Project 2025\New BIP Dash 2.4.xlsx"
@@ -24,7 +23,7 @@ LOCAL_DEV_PATH = Path(
 FILE_ID = "1DDmALmveVKWYuu7pVhfafhcmC8rmkzII"
 DOWNLOAD_URL = "https://drive.google.com/uc?export=download"
 TMP_DIR = Path(tempfile.gettempdir())
-CLOUD_PATH = TMP_DIR / "New BIP Dash 2.4.xlsx"
+CLOUD_PATH = TMP_DIR / "bip_data.xlsx"
 
 
 # ===============================
